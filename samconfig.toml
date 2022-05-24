@@ -1,0 +1,13 @@
+version = 0.1
+[default]
+[default.deploy]
+[default.deploy.parameters]
+stack_name = "hello-world-rekognition"
+s3_bucket = "aws-sam-cli-managed-default-samclisourcebucket-1jwvdoqrhkirx"
+s3_prefix = "hello-world-rekognition"
+region = "us-east-1"
+confirm_changeset = false
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = "Name=\"hello-world\" EmailAddress=\"\""
+image_repositories = []
+disable_rollback = true

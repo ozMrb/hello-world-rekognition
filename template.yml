@@ -1,0 +1,144 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: 'Rekognition Video Blog'
+Parameters:
+  Name:
+    Type: String
+    Default: hello-world
+  EmailAddress:
+    Type: String
+
+Resources:
+  Video:
+    Type: AWS::KinesisVideo::Stream
+    Properties: 
+      Name: !Ref Name
+      DataRetentionInHours: 1
+
+  Processor:
+    Type: AWS::Rekognition::StreamProcessor
+    Properties: 
+      Name: !Ref Name
+      KinesisVideoStream: 
+        Arn: !GetAtt Video.Arn
+      KinesisDataStream: 
+        Arn: !GetAtt Data.Arn
+      RoleArn: !GetAtt ProcessorRole.Arn
+      FaceSearchSettings: 
+        CollectionId: !Ref Collection
+        FaceMatchThreshold: 85.5
+
+  Collection:
+    Type: AWS::Rekognition::Collection
+    Properties: 
+      CollectionId: !Ref Name
+
+  S3Bucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: !Sub "${Name}-${AWS::AccountId}"
+
+  Data:
+    Type: AWS::Kinesis::Stream
+    Properties: 
+      Name: !Ref Name
+      ShardCount: 1
+
+  Lambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: index.handler
+      Runtime: python3.8
+      InlineCode: |
+        import base64
+        import json
+        def handler(event, context):
+          authenticated = False
+          for record in event['Records']:
+            #Kinesis data is base64 encoded so decode here
+            data=base64.b64decode(record["kinesis"]["data"])
+            print("Decoded payload: " + str(data))
+            data = json.loads(data.decode('utf-8'))
+            try:
+              for face in data["FaceSearchResponse"]:
+                for matched in face["MatchedFaces"]:
+                  if matched["Face"]["ExternalImageId"] == "brian":
+                    authenticated = True
+            except Exception as e:
+              print("Execption" + str(e))
+          if authenticated:
+            print("Passed")
+          else:
+            print("Failed")
+          
+      Timeout: 120
+      Events:
+        KinesisEvent:
+          Type: Kinesis
+          Properties:
+            Stream: !GetAtt Data.Arn
+            StartingPosition: TRIM_HORIZON
+            BatchSize: 10
+            Enabled: true
+
+
+      Policies:
+        - AWSLambdaExecute
+        - Version: '2012-10-17' 
+          Statement:
+            - Sid: kinesis
+              Effect: Allow
+              Action:
+                  - 'kinesis:GetRecords'
+                  - 'kinesis:GetShardIterator'
+                  - 'kinesis:DescribeStream'
+                  - 'kinesis:ListStreams'
+              Resource: !GetAtt Data.Arn
+            - Sid: kinesisList
+              Effect: Allow
+              Action:
+                  - 'kinesis:ListStreams'
+              Resource: '*'
+
+  ProcessorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              Service: rekognition.amazonaws.com
+            Action: sts:AssumeRole
+      Path: '/'
+      Policies:
+        -
+          PolicyName: lambda-comprehend-policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              -
+                Effect: Allow
+                Action:
+                    - 'kinesis:*'
+                Resource: !GetAtt Data.Arn
+              -
+                Effect: Allow
+                Action:
+                    - 'kinesisvideo:*'
+                Resource: '*'
+              -
+                Effect: Allow
+                Action:
+                    - 'rekognition:*'
+                Resource: '*'
+
+
+
+Outputs:
+  KinesisDataStreamArn:
+    Description: Kinesis Data Stream Arn (used in Stream Processer OutPut)
+    Value: !GetAtt Data.Arn
+
+
